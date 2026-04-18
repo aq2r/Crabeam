@@ -1,0 +1,85 @@
+name: Build
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build app
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-rust-${{ hashFiles('./Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: pwsh
+        run: |
+          $STORE_PATH = pnpm store path --silent
+          "STORE_PATH=$STORE_PATH" >> $env:GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install frontend dependencies
+        working-directory: crabeam-host/crabeam
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app
+        working-directory: crabeam-host/crabeam
+        run: pnpm tauri build
+
+      - name: Build Web app
+        working-directory: crabeam-viewer/crabeam-site
+        run: pnpm build
+
+      - name: Create App ZIP archive
+        run: |
+          Compress-Archive -Path target/release/crabeam.exe,TERMS,LICENSE,crabeam-viewer/crabeam-site/public/App-ThirdPartyLicenses.html -DestinationPath crabeam.zip
+        shell: pwsh
+
+      - name: Create Web dist ZIP archive
+        run: |
+          Compress-Archive -Path crabeam-viewer/crabeam-site/dist -DestinationPath web-dist.zip
+        shell: pwsh
+
+      - name: Attach File
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            crabeam.zip

@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["crabeam-host/crabeam-cli","crabeam-host/crabeam-host-core", "crabeam-viewer/crabeam-viewer-core", "crabeam-host/crabeam/src-tauri"]
