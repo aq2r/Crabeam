@@ -1,2 +1,18 @@
 # Crabeam
 Private low-latency screen sharing with OBS, peer-to-peer transport.
+
+OBSを使用して低遅延・高画質な画面共有をp2pで行うアプリ
+
+## 特徴
+- 配信側はアプリを起動後、OBSの設定を行い表示されたurlにOBSで配信を行い、表示されたURLを共有する
+- 視聴側は渡されたURLを開くだけ
+
+## 配信側使用方法
+
+1. アプリを開く
+2. 設定の配信から、サービスを`whip`に、宛先のサーバーを表示された配信用URL (例: 127.0.0.1:8934/whip) に設定する
+3. 出力タブから画質を調整する。エンコーダー設定からレート制御をCBRに、ビットレートを1000~10000kbpsあたりにするのをおすすめします。
+4. OBSの配信を開始する
+5. 共有用URLを見てもらいたい人に送る
+
+## 配信側アプリのダウンロード: [Download](https://github.com/aq2r/Crabeam/releases/)
