@@ -15,4 +15,8 @@ OBSを使用して低遅延・高画質な画面共有をp2pで行うアプリ
 4. OBSの配信を開始する
 5. 共有用URLを見てもらいたい人に送る
 
-## 配信側アプリのダウンロード: [Download](https://github.com/aq2r/Crabeam/releases/)
+## 配信側アプリのダウンロード: 
+[Download](https://github.com/aq2r/Crabeam/releases/)
+
+## 注意
+まだつながりにくいなどのバグが残っている可能性があります。
