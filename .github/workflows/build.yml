@@ -30,9 +30,6 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install wasm-pack
-        run: cargo install wasm-pack || true
-
       - name: Cache Rust dependencies
         uses: actions/cache@v4
         with:
@@ -67,6 +64,9 @@ jobs:
       - name: Build Tauri app
         working-directory: crabeam-host/crabeam
         run: pnpm tauri build
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack || true
 
       - name: Build Web app
         working-directory: crabeam-viewer/crabeam-site
