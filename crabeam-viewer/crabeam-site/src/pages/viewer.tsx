@@ -989,9 +989,7 @@ export function ViewerPage() {
                 />
 
                 <div className="pointer-events-none absolute right-3 top-3 z-10">
-                  {(videoStats.width ||
-                    videoStats.height ||
-                    videoStats.fps) && (
+                  {videoStats.width && videoStats.height && videoStats.fps && (
                     <div className="rounded-full border border-white/10 bg-black/55 px-3 py-1.5 text-xs text-white/75 backdrop-blur-md">
                       {videoStats.width && videoStats.height
                         ? `${videoStats.width}×${videoStats.height}`
