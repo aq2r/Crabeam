@@ -1,0 +1,10 @@
+{
+  "type": "whip_custom",
+  "settings": {
+    "server": "http://127.0.0.1:8924/whip",
+    "use_auth": false,
+    "bwtest": false,
+    "service": "WHIP",
+    "bearer_token": ""
+  }
+}
