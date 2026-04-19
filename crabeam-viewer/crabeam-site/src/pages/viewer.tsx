@@ -26,6 +26,8 @@ type ViewerStatus =
   | "connecting"
   | "connected"
   | "disconnected"
+  | "ended"
+  | "invalid_ticket"
   | "error";
 
 type SignalingAnswer = {
@@ -114,6 +116,61 @@ function getStatusTone(status: ViewerStatus): string {
   }
 }
 
+function classifyViewerError(message: string): {
+  status: ViewerStatus;
+  overlay: string;
+  shouldReconnect: boolean;
+} {
+  const text = message.toLowerCase();
+
+  if (
+    text.includes("timed out") ||
+    text.includes("host stopped") ||
+    text.includes("stream closed") ||
+    text.includes("session ended") ||
+    text.includes("host is not started") ||
+    text.includes("closed by peer")
+  ) {
+    return {
+      status: "ended",
+      overlay: "この配信は終了しました",
+      shouldReconnect: false,
+    };
+  }
+
+  if (
+    text.includes("invalid ticket") ||
+    text.includes("unknown ticket") ||
+    text.includes("ticket not found") ||
+    text.includes("expired ticket")
+  ) {
+    return {
+      status: "invalid_ticket",
+      overlay: "この共有リンクは無効です",
+      shouldReconnect: false,
+    };
+  }
+
+  if (
+    text.includes("failed to connect") ||
+    text.includes("ice connection failed") ||
+    text.includes("webrtc connection failed") ||
+    text.includes("network")
+  ) {
+    return {
+      status: "error",
+      overlay: "接続に失敗しました。再接続しています…",
+      shouldReconnect: true,
+    };
+  }
+
+  return {
+    status: "error",
+    overlay: "再生に失敗しました",
+    shouldReconnect: true,
+  };
+}
+
 export function ViewerPage() {
   const ticket = readTicketFromHash();
   if (!ticket) {
@@ -145,6 +202,16 @@ export function ViewerPage() {
   const [menuNicknameInput, setMenuNicknameInput] = useState("");
 
   const statusLabel = useMemo(() => getStatusLabel(status), [status]);
+
+  const [videoStats, setVideoStats] = useState<{
+    width: number | null;
+    height: number | null;
+    fps: number | null;
+  }>({
+    width: null,
+    height: null,
+    fps: null,
+  });
 
   const clearSplashTimer = useCallback(() => {
     if (splashTimerRef.current !== null) {
@@ -377,23 +444,39 @@ export function ViewerPage() {
         }
 
         if (state === "failed") {
-          setStatus("error");
+          const classified = classifyViewerError("WebRTC connection failed");
+          setStatus(classified.status);
           setError("WebRTC connection failed");
+          if (classified.shouldReconnect) {
+            scheduleReconnect();
+          }
+          return;
+        }
+
+        if (state === "disconnected") {
+          setStatus("disconnected");
           scheduleReconnect();
           return;
         }
 
-        if (state === "disconnected" || state === "closed") {
-          setStatus("disconnected");
-          scheduleReconnect();
+        if (state === "closed") {
+          const classified = classifyViewerError("stream closed");
+          setStatus(classified.status);
+          setError("stream closed");
+          if (classified.shouldReconnect) {
+            scheduleReconnect();
+          }
         }
       };
 
       pc.oniceconnectionstatechange = () => {
         if (pc.iceConnectionState === "failed") {
-          setStatus("error");
+          const classified = classifyViewerError("ICE connection failed");
+          setStatus(classified.status);
           setError("ICE connection failed");
-          scheduleReconnect();
+          if (classified.shouldReconnect) {
+            scheduleReconnect();
+          }
         }
       };
 
@@ -449,10 +532,17 @@ export function ViewerPage() {
       await pc.setRemoteDescription(response.answer);
     } catch (err) {
       closeConnection();
-      setStatus("error");
-      setError(err instanceof Error ? err.message : String(err));
+
+      const message = err instanceof Error ? err.message : String(err);
+      const classified = classifyViewerError(message);
+
+      setStatus(classified.status);
+      setError(message);
       hideSplashWithFade(0);
-      scheduleReconnect();
+
+      if (classified.shouldReconnect) {
+        scheduleReconnect();
+      }
     }
   }, [
     ticket,
@@ -541,6 +631,86 @@ export function ViewerPage() {
     }
   }, [isMuted]);
 
+  const updateVideoStats = useCallback(async () => {
+    const pc = pcRef.current;
+    const video = videoRef.current;
+
+    if (!pc) return;
+
+    try {
+      const report = await pc.getStats();
+
+      let width: number | null = null;
+      let height: number | null = null;
+      let fps: number | null = null;
+
+      report.forEach((stat) => {
+        if (stat.type !== "inbound-rtp") return;
+        if ((stat as RTCInboundRtpStreamStats).kind !== "video") return;
+
+        const inbound = stat as RTCInboundRtpStreamStats;
+
+        if (typeof inbound.frameWidth === "number") {
+          width = inbound.frameWidth;
+        }
+
+        if (typeof inbound.frameHeight === "number") {
+          height = inbound.frameHeight;
+        }
+
+        if (typeof inbound.framesPerSecond === "number") {
+          fps = inbound.framesPerSecond;
+        }
+      });
+
+      if ((!width || !height) && video) {
+        if (video.videoWidth > 0) width = video.videoWidth;
+        if (video.videoHeight > 0) height = video.videoHeight;
+      }
+
+      setVideoStats((prev) => {
+        const next = {
+          width: width ?? prev.width,
+          height: height ?? prev.height,
+          fps: fps ?? prev.fps,
+        };
+
+        if (
+          next.width === prev.width &&
+          next.height === prev.height &&
+          next.fps === prev.fps
+        ) {
+          return prev;
+        }
+
+        return next;
+      });
+    } catch {
+      //
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status !== "connected" && status !== "connecting") {
+      setVideoStats({
+        width: null,
+        height: null,
+        fps: null,
+      });
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void updateVideoStats();
+    }, 1000);
+
+    void updateVideoStats();
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [status, updateVideoStats]);
+
   useEffect(() => {
     const savedNickname = window.localStorage.getItem(NICKNAME_STORAGE_KEY);
 
@@ -613,6 +783,30 @@ export function ViewerPage() {
       closeConnection();
     };
   }, [clearSplashTimer, closeConnection]);
+
+  const overlayMessage = useMemo(() => {
+    if (status === "connecting") {
+      return "Connecting to stream...";
+    }
+
+    if (status === "disconnected") {
+      return "Reconnecting...";
+    }
+
+    if (status === "ended") {
+      return "This stream is ended.";
+    }
+
+    if (status === "invalid_ticket") {
+      return "This sharing link is invalid.";
+    }
+
+    if (status === "error") {
+      return classifyViewerError(error).overlay;
+    }
+
+    return "Waiting for stream";
+  }, [status, error]);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-neutral-950 text-white">
@@ -794,23 +988,33 @@ export function ViewerPage() {
                   className="h-full w-full bg-black object-contain"
                 />
 
+                <div className="pointer-events-none absolute right-3 top-3 z-10">
+                  {(videoStats.width ||
+                    videoStats.height ||
+                    videoStats.fps) && (
+                    <div className="rounded-full border border-white/10 bg-black/55 px-3 py-1.5 text-xs text-white/75 backdrop-blur-md">
+                      {videoStats.width && videoStats.height
+                        ? `${videoStats.width}×${videoStats.height}`
+                        : "--×--"}
+                      {" · "}
+                      {typeof videoStats.fps === "number"
+                        ? `${Math.round(videoStats.fps)} fps`
+                        : "-- fps"}
+                    </div>
+                  )}
+                </div>
+
                 {status !== "connected" && (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
                     <div className="rounded-full border border-white/10 bg-black/40 px-4 py-2 text-sm text-white/55 backdrop-blur-md">
-                      {status === "connecting"
-                        ? "Connecting to stream..."
-                        : status === "error"
-                          ? "Unable to start playback"
-                          : status === "disconnected"
-                            ? "Stream disconnected"
-                            : "Waiting for stream"}
+                      {overlayMessage}
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {error ? (
+            {/*{error ? (
               <Card className="mt-4 border-red-400/20 bg-red-400/10 text-red-100 shadow-none">
                 <CardContent className="pt-6">
                   <pre className="whitespace-pre-wrap font-sans text-sm">
@@ -818,7 +1022,7 @@ export function ViewerPage() {
                   </pre>
                 </CardContent>
               </Card>
-            ) : null}
+            ) : null}*/}
           </div>
         </section>
       </div>
